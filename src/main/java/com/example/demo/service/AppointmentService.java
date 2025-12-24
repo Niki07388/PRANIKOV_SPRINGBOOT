@@ -1,17 +1,27 @@
 package com.example.demo.service;
 
-import com.example.demo.entity.Appointment;
-import com.example.demo.entity.User;
-import com.example.demo.dto.AppointmentDTO;
-import com.example.demo.repository.AppointmentRepository;
-import com.example.demo.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+
+import com.example.demo.dto.AppointmentDTO;
+import com.example.demo.entity.Appointment;
+import com.example.demo.entity.User;
+import com.example.demo.event.AppointmentEvent;
+import com.example.demo.kafka.producer.AppointmentProducer;
+import com.example.demo.repository.AppointmentRepository;
+import com.example.demo.repository.UserRepository;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -19,6 +29,7 @@ public class AppointmentService {
 
     private final AppointmentRepository appointmentRepository;
     private final UserRepository userRepository;
+    private final AppointmentProducer appointmentProducer;
 
     public Appointment createAppointment(AppointmentDTO dto) {
         Appointment appointment = new Appointment();
@@ -31,7 +42,23 @@ public class AppointmentService {
         appointment.setStatus(dto.getStatus() != null ? dto.getStatus() : "scheduled");
         appointment.setVisitType(dto.getVisitType() != null ? dto.getVisitType() : "in_person");
 
-        return appointmentRepository.save(appointment);
+        Appointment saved = appointmentRepository.save(appointment);
+
+        // Publish appointment created event to Kafka
+        AppointmentEvent event = AppointmentEvent.builder()
+                .appointmentId(saved.getId())
+                .patientId(saved.getPatientId())
+                .doctorId(saved.getDoctorId())
+                .date(saved.getDate())
+                .time(saved.getTime())
+                .reason(saved.getReason())
+                .status(saved.getStatus())
+                .visitType(saved.getVisitType())
+                .action("created")
+                .build();
+        appointmentProducer.publishAppointmentEvent(event);
+
+        return saved;
     }
 
     public Appointment getAppointmentById(String id) {
@@ -95,11 +122,40 @@ public class AppointmentService {
             appointment.setNotes(dto.getNotes());
         }
 
-        return appointmentRepository.save(appointment);
+        Appointment updated = appointmentRepository.save(appointment);
+
+        // Publish appointment updated event to Kafka
+        AppointmentEvent event = AppointmentEvent.builder()
+                .appointmentId(updated.getId())
+                .patientId(updated.getPatientId())
+                .doctorId(updated.getDoctorId())
+                .date(updated.getDate())
+                .time(updated.getTime())
+                .reason(updated.getReason())
+                .status(updated.getStatus())
+                .visitType(updated.getVisitType())
+                .action("updated")
+                .build();
+        appointmentProducer.publishAppointmentEvent(event);
+
+        return updated;
     }
 
     public void deleteAppointment(String id) {
+        Appointment appointment = getAppointmentById(id);
         appointmentRepository.deleteById(id);
+
+        // Publish appointment cancelled event to Kafka
+        AppointmentEvent event = AppointmentEvent.builder()
+                .appointmentId(appointment.getId())
+                .patientId(appointment.getPatientId())
+                .doctorId(appointment.getDoctorId())
+                .date(appointment.getDate())
+                .time(appointment.getTime())
+                .status("cancelled")
+                .action("cancelled")
+                .build();
+        appointmentProducer.publishAppointmentEvent(event);
     }
 
     public Map<String, Object> getAvailability(String doctorId, LocalDate date, Integer bufferMinutes) {

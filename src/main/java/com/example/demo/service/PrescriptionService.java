@@ -1,18 +1,24 @@
 package com.example.demo.service;
 
-import com.example.demo.entity.Prescription;
-import com.example.demo.dto.PrescriptionDTO;
-import com.example.demo.repository.PrescriptionRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+
+import com.example.demo.dto.PrescriptionDTO;
+import com.example.demo.entity.Prescription;
+import com.example.demo.event.PrescriptionEvent;
+import com.example.demo.kafka.producer.PrescriptionProducer;
+import com.example.demo.repository.PrescriptionRepository;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class PrescriptionService {
     private final PrescriptionRepository prescriptionRepository;
+    private final PrescriptionProducer prescriptionProducer;
 
     public Prescription createPrescription(PrescriptionDTO dto) {
         Prescription prescription = new Prescription();
@@ -26,7 +32,23 @@ public class PrescriptionService {
         prescription.setNotes(dto.getNotes());
         prescription.setDate(LocalDate.now());
 
-        return prescriptionRepository.save(prescription);
+        Prescription saved = prescriptionRepository.save(prescription);
+
+        // Publish prescription created event to Kafka
+        PrescriptionEvent event = PrescriptionEvent.builder()
+                .prescriptionId(saved.getId())
+                .patientId(saved.getPatientId())
+                .doctorId(saved.getDoctorId())
+                .medication(saved.getMedication())
+                .dosage(saved.getDosage())
+                .frequency(saved.getFrequency())
+                .startDate(saved.getDate())
+                .status("active")
+                .action("created")
+                .build();
+        prescriptionProducer.publishPrescriptionEvent(event);
+
+        return saved;
     }
 
     public Prescription getPrescriptionById(String id) {
@@ -65,11 +87,38 @@ public class PrescriptionService {
             prescription.setNotes(dto.getNotes());
         }
 
-        return prescriptionRepository.save(prescription);
+        Prescription updated = prescriptionRepository.save(prescription);
+
+        // Publish prescription updated event to Kafka
+        PrescriptionEvent event = PrescriptionEvent.builder()
+                .prescriptionId(updated.getId())
+                .patientId(updated.getPatientId())
+                .doctorId(updated.getDoctorId())
+                .medication(updated.getMedication())
+                .dosage(updated.getDosage())
+                .frequency(updated.getFrequency())
+                .startDate(updated.getDate())
+                .status("active")
+                .action("updated")
+                .build();
+        prescriptionProducer.publishPrescriptionEvent(event);
+
+        return updated;
     }
 
     public void deletePrescription(String id) {
+        Prescription prescription = getPrescriptionById(id);
         prescriptionRepository.deleteById(id);
+
+        // Publish prescription cancelled event to Kafka
+        PrescriptionEvent event = PrescriptionEvent.builder()
+                .prescriptionId(prescription.getId())
+                .patientId(prescription.getPatientId())
+                .doctorId(prescription.getDoctorId())
+                .status("cancelled")
+                .action("cancelled")
+                .build();
+        prescriptionProducer.publishPrescriptionEvent(event);
     }
 
     public Prescription refillPrescription(String id) {

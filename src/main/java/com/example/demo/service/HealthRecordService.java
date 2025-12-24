@@ -1,18 +1,24 @@
 package com.example.demo.service;
 
-import com.example.demo.entity.HealthRecord;
-import com.example.demo.dto.HealthRecordDTO;
-import com.example.demo.repository.HealthRecordRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+
+import com.example.demo.dto.HealthRecordDTO;
+import com.example.demo.entity.HealthRecord;
+import com.example.demo.event.HealthRecordEvent;
+import com.example.demo.kafka.producer.HealthRecordProducer;
+import com.example.demo.repository.HealthRecordRepository;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class HealthRecordService {
     private final HealthRecordRepository healthRecordRepository;
+    private final HealthRecordProducer healthRecordProducer;
 
     public HealthRecord createHealthRecord(HealthRecordDTO dto) {
         HealthRecord record = new HealthRecord();
@@ -24,7 +30,21 @@ public class HealthRecordService {
         record.setAttachments(dto.getAttachments());
         record.setDate(LocalDate.now());
 
-        return healthRecordRepository.save(record);
+        HealthRecord saved = healthRecordRepository.save(record);
+
+        // Publish health record created event to Kafka
+        HealthRecordEvent event = HealthRecordEvent.builder()
+                .recordId(saved.getId())
+                .patientId(saved.getPatientId())
+                .doctorId(saved.getDoctorId())
+                .recordType(saved.getType())
+                .description(saved.getDescription())
+                .recordDate(saved.getDate())
+                .action("created")
+                .build();
+        healthRecordProducer.publishHealthRecordEvent(event);
+
+        return saved;
     }
 
     public HealthRecord getHealthRecordById(String id) {
@@ -57,7 +77,21 @@ public class HealthRecordService {
             record.setAttachments(dto.getAttachments());
         }
 
-        return healthRecordRepository.save(record);
+        HealthRecord updated = healthRecordRepository.save(record);
+
+        // Publish health record updated event to Kafka
+        HealthRecordEvent event = HealthRecordEvent.builder()
+                .recordId(updated.getId())
+                .patientId(updated.getPatientId())
+                .doctorId(updated.getDoctorId())
+                .recordType(updated.getType())
+                .description(updated.getDescription())
+                .recordDate(updated.getDate())
+                .action("updated")
+                .build();
+        healthRecordProducer.publishHealthRecordEvent(event);
+
+        return updated;
     }
 
     public void deleteHealthRecord(String id) {

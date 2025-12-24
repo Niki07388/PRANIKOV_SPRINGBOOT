@@ -47,10 +47,20 @@ public class PhoneVerificationService {
 
         // Send OTP
         if (devMode) {
-            System.out.println("[DEV] OTP for user " + userId + ": " + otp);
+            System.out.println("[DEV] OTP for user " + userId + " to phone " + phone + ": " + otp);
         } else {
             String smsBody = "Your verification code is " + otp;
-            twilioService.sendSmsViaTwilio(phone, smsBody);
+            System.out.println("[PhoneVerification] Sending OTP to " + phone + " for user " + userId);
+            boolean sent = twilioService.sendSmsViaTwilio(phone, smsBody);
+            if (!sent) {
+                // Rollback user changes if SMS fails
+                user.setPhoneOtpHash(null);
+                user.setPhoneOtpExpires(null);
+                user.setPhoneOtpLastSent(null);
+                userRepository.save(user);
+                throw new RuntimeException("Failed to send OTP. Please check your phone number and try again.");
+            }
+            System.out.println("[PhoneVerification] OTP sent successfully to " + phone);
         }
     }
 
