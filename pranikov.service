@@ -1,0 +1,17 @@
+[Unit]
+Description=Pranikov Healthcare Platform - Docker Compose Services
+Documentation=file:///opt/pranikov/DEPLOYMENT_GUIDE.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pranikov
+ExecStart=/usr/local/bin/docker-compose up -d
+ExecStop=/usr/local/bin/docker-compose down
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
